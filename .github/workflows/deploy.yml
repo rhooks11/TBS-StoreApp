@@ -51,20 +51,30 @@ jobs:
         env:
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
 
-      - name: Deploy to Plesk via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server:     ${{ secrets.FTP_SERVER }}
-          username:   ${{ secrets.FTP_USERNAME }}
-          password:   ${{ secrets.FTP_PASSWORD }}
-          protocol:   ftps
-          port:       21
-          local-dir:  ./dist/
-          server-dir: ${{ secrets.FTP_SERVER_DIR || '/' }}
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/node_modules/**
-            .well-known/**
-            App_Data/**
-            .user.ini
+      # lftp instead of SamKirkland/FTP-Deploy-Action: that action's FTPS data
+      # socket gets ECONNRESET on this Plesk/IIS server. Forced IPv4 + classic
+      # PASV (same settings as TBS-RecruiterApp-DotNet) is reliable.
+      - name: Deploy to Plesk via lftp (FTPS)
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          REMOTE_DIR: ${{ secrets.FTP_SERVER_DIR || '/' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          lftp <<EOF
+          set cmd:fail-exit true
+          set dns:order inet
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate no
+          set ftp:passive-mode on
+          set ftp:prefer-epsv no
+          set net:max-retries 3
+          set net:timeout 20
+          set net:reconnect-interval-base 5
+          open "$FTP_SERVER"
+          user "$FTP_USERNAME" "$FTP_PASSWORD"
+          mirror --reverse --delete --no-perms --parallel=4 --verbose --exclude .well-known/ --exclude App_Data/ --exclude-glob .user.ini ./dist/ "$REMOTE_DIR"
+          bye
+          EOF
