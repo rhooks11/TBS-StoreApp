@@ -73,6 +73,9 @@ jobs:
           set net:max-retries 3
           set net:timeout 20
           set net:reconnect-interval-base 5
+          # overwrite in place: default mirror deletes a changed file then re-uploads it,
+          # leaving a window with no index.html where IIS answers 403 (no default document)
+          set mirror:overwrite true
           open "$FTP_SERVER"
           user "$FTP_USERNAME" "$FTP_PASSWORD"
           mirror --reverse --delete --no-perms --parallel=4 --verbose --exclude .well-known/ --exclude App_Data/ --exclude-glob .user.ini ./dist/ "$REMOTE_DIR"
