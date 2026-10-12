@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Download, Gift, Package, Video } from 'lucide-react';
-import type { Product, ProductType } from '@/types';
+import { parseProductImages, type Product, type ProductType } from '@/types';
 
 const TYPE_ICONS: Record<ProductType, typeof Package> = {
   Physical: Package,
@@ -22,14 +22,19 @@ export default function ProductGrid({ products }: { products: Product[] }) {
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {products.map((p) => {
         const Icon = TYPE_ICONS[p.type];
+        const thumbnail = parseProductImages(p.imagesJson)[0];
         return (
           <Link
             key={p.id}
             to={`/products/${p.id}`}
             className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md"
           >
-            <div className="flex h-32 items-center justify-center rounded-lg bg-gray-50 text-gray-300">
-              <Icon size={40} />
+            <div className="flex h-32 items-center justify-center overflow-hidden rounded-lg bg-gray-50 text-gray-300">
+              {thumbnail ? (
+                <img src={thumbnail} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <Icon size={40} />
+              )}
             </div>
             <div className="min-w-0">
               <div className="truncate font-semibold text-ink-900">{p.name}</div>

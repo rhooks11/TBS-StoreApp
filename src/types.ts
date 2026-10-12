@@ -13,8 +13,19 @@ export interface Product {
   currency: string;
   stockQty: number;
   imagesJson?: string | null;
+  videoUrl?: string | null;
   isActive: boolean;
   createdAt: string;
+}
+
+export function parseProductImages(json?: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 export interface Paginated<T> {

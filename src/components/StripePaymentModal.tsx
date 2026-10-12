@@ -1,13 +1,21 @@
-import { useState } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
+import { useEffect, useState } from 'react';
+import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
+import client from '../lib/api/client';
 
 // Only reached in live Stripe mode — simulated mode settles checkout instantly
 // and never returns a client secret.
-const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
-const stripePromise = publishableKey ? loadStripe(publishableKey) : null;
+// Key comes from admin Settings (/api/stripe/config); .env is only a fallback.
+let stripePromise: Promise<Stripe | null> | null = null;
+const getStripe = () =>
+  (stripePromise ??= client
+    .get<{ publishableKey: string | null }>('/api/stripe/config')
+    .then((r) => r.data.publishableKey)
+    .catch(() => null)
+    .then((k) => k || (import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined))
+    .then((k) => (k ? loadStripe(k) : null)));
 
 function CheckoutForm({ onDone }: { onDone: () => void }) {
   const stripe = useStripe();
@@ -51,15 +59,19 @@ export default function StripePaymentModal({ clientSecrets, onClose, onAllDone }
   onAllDone: () => void;
 }) {
   const [index, setIndex] = useState(0);
+  const [stripe, setStripe] = useState<Stripe | null>(null);
 
-  if (!stripePromise) {
-    toast.error('Stripe publishable key is not configured (VITE_STRIPE_PUBLISHABLE_KEY).');
-    onClose();
-    return null;
-  }
+  useEffect(() => {
+    getStripe().then((s) => {
+      if (s) return setStripe(s);
+      stripePromise = null; // retry next open, e.g. after admin adds the key
+      toast.error('Stripe publishable key is not configured (Admin → Settings → Payments).');
+      onClose();
+    });
+  }, [onClose]);
 
   const current = clientSecrets[index];
-  if (!current) return null;
+  if (!stripe || !current) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -72,7 +84,7 @@ export default function StripePaymentModal({ clientSecrets, onClose, onAllDone }
             <X size={20} />
           </button>
         </div>
-        <Elements key={current} stripe={stripePromise} options={{ clientSecret: current }}>
+        <Elements key={current} stripe={stripe} options={{ clientSecret: current }}>
           <CheckoutForm
             onDone={() => {
               if (index + 1 < clientSecrets.length) {

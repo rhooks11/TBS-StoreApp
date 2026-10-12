@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ShoppingCart } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/lib/auth/AuthStore';
-import { TYPE_LABELS } from '@/types';
+import { parseProductImages, TYPE_LABELS } from '@/types';
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +13,7 @@ export default function ProductDetailPage() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuthStore();
   const [qty, setQty] = useState(1);
+  const [activeMedia, setActiveMedia] = useState(0);
 
   const { data: product, isLoading } = useQuery({
     queryKey: ['product', id],
@@ -38,10 +39,47 @@ export default function ProductDetailPage() {
   if (!product) return <p className="py-20 text-center text-gray-500">Product not found.</p>;
 
   const outOfStock = product.type === 'Physical' && product.stockQty === 0;
+  const images = parseProductImages(product.imagesJson);
+  const media = [
+    ...images.map((url) => ({ type: 'image' as const, url })),
+    ...(product.videoUrl ? [{ type: 'video' as const, url: product.videoUrl }] : []),
+  ];
+  const current = media[Math.min(activeMedia, media.length - 1)];
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
       <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+        {media.length > 0 && (
+          <div className="mb-6">
+            <div className="flex h-72 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+              {current.type === 'video' ? (
+                <video key={current.url} src={current.url} controls className="h-full w-full object-contain" />
+              ) : (
+                <img key={current.url} src={current.url} alt={product.name} className="h-full w-full object-contain" />
+              )}
+            </div>
+            {media.length > 1 && (
+              <div className="mt-3 flex gap-2 overflow-x-auto">
+                {media.map((m, i) => (
+                  <button
+                    key={m.url}
+                    onClick={() => setActiveMedia(i)}
+                    className={`h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 ${
+                      i === activeMedia ? 'border-brand-600' : 'border-transparent'
+                    }`}
+                  >
+                    {m.type === 'video' ? (
+                      <video src={m.url} className="h-full w-full object-cover" muted />
+                    ) : (
+                      <img src={m.url} alt="" className="h-full w-full object-cover" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
           {TYPE_LABELS[product.type]}
         </span>
