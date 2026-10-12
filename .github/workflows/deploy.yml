@@ -1,0 +1,83 @@
+# Builds the Vite SPA and ships ./dist to the Plesk/IIS site over FTP.
+# Mirrors TBS-RecruiterWebApp/.github/workflows/deploy-test.yml.
+#
+# Required repository secrets:
+#   FTP_SERVER     Plesk FTP host, no scheme   e.g. ftp.trainersbysport.app
+#   FTP_USERNAME   FTP user for THIS subdomain (chrooted into its docroot)
+#   FTP_PASSWORD
+# Optional:
+#   FTP_SERVER_DIR             remote docroot with trailing slash, default "/"
+#   VITE_STRIPE_PUBLISHABLE_KEY  baked into the bundle at build time
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate required secrets
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
+            [ -z "${!v}" ] && { echo "::error::secret $v is not set (Settings > Secrets and variables > Actions)"; missing=1; }
+          done
+          [ -z "$missing" ] || exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build   # tsc -b + vite build (production mode -> .env.production) -> dist/
+        env:
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+
+      # lftp instead of SamKirkland/FTP-Deploy-Action: that action's FTPS data
+      # socket gets ECONNRESET on this Plesk/IIS server. Forced IPv4 + classic
+      # PASV (same settings as TBS-RecruiterApp-DotNet) is reliable.
+      - name: Deploy to Plesk via lftp (FTPS)
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          REMOTE_DIR: ${{ secrets.FTP_SERVER_DIR || '/' }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+          lftp <<EOF
+          set cmd:fail-exit true
+          set dns:order inet
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate no
+          set ftp:passive-mode on
+          set ftp:prefer-epsv no
+          set net:max-retries 3
+          set net:timeout 20
+          set net:reconnect-interval-base 5
+          # overwrite in place: default mirror deletes a changed file then re-uploads it,
+          # leaving a window with no index.html where IIS answers 403 (no default document)
+          set mirror:overwrite true
+          open "$FTP_SERVER"
+          user "$FTP_USERNAME" "$FTP_PASSWORD"
+          mirror --reverse --delete --no-perms --parallel=4 --verbose --exclude .well-known/ --exclude App_Data/ --exclude-glob .user.ini ./dist/ "$REMOTE_DIR"
+          bye
+          EOF
